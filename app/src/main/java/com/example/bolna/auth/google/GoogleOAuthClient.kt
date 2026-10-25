@@ -1,4 +1,4 @@
-package com.example.bolna.auth.util
+package com.example.bolna.auth.google
 
 import android.content.Context
 import android.content.MutableContextWrapper

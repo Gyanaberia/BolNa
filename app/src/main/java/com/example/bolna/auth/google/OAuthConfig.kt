@@ -1,4 +1,4 @@
-package com.example.bolna.auth.util
+package com.example.bolna.auth.google
 
 object AuthConfig {
     // The WEB application client ID from GCP (not the Android one)

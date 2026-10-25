@@ -1,4 +1,4 @@
-package com.example.bolna.auth.util
+package com.example.bolna.auth.google
 
 import android.util.Log
 import androidx.compose.runtime.Composable

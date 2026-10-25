@@ -5,6 +5,7 @@
 
 <!--    DISABLE CLEARTEXT WHEN IN PROD-->
     <application
+        android:name=".BolNaApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"

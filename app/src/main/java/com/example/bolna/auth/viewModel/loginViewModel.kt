@@ -2,25 +2,30 @@ package com.example.bolna.auth.viewModel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bolna.auth.model.AuthResponse
-import com.example.bolna.auth.model.GoogleOAuthRequest
-import com.example.bolna.auth.model.LoginRequest
-import com.example.bolna.auth.util.AuthApi
+import com.example.bolna.auth.data.dto.AuthResponse
+import com.example.bolna.auth.data.dto.GoogleOAuthRequest
+import com.example.bolna.auth.data.service.AuthRepository
 import com.google.gson.Gson
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 data class LoginUiState(
     val username: String = "",
     val password: String = "",
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val isAuthenticated: Boolean = false
 )
 
-class LoginViewModel : ViewModel() {
+@HiltViewModel
+class LoginViewModel @Inject constructor(
+    private val authRepository: AuthRepository
+) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
@@ -36,70 +41,41 @@ class LoginViewModel : ViewModel() {
             return
         }
 
+        if(s.password.length<8){
+            _state.update { it.copy(error="Incorrect UserName or Password") }
+        }
         _state.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
-            try {
-                val response = AuthApi.retrofitService.loginUser(
-                    LoginRequest(userName = s.username, password = s.password)
-                )
+                authRepository.login(s.username, s.password)
+                    .onSuccess {
+                        _state.update { it.copy(isLoading = false, isAuthenticated = true) }
+                    }
+                    .onFailure{
+                            e ->
+                        _state.update { it.copy(isLoading = false, error = e.message ?: "Something went wrong") }
 
-                if (response.isSuccessful && response.body() != null) {
-                    val authResponse = response.body()
-                    _state.update { it.copy(isLoading = false) }
-                    // TODO: Store token (authResponse.token) and route to dashboard page
-                } else {
-                    val errorMessage = parseErrorResponse(response.errorBody()?.string())
-                    _state.update { it.copy(isLoading = false, error = errorMessage) }
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.localizedMessage ?: "Network connection failed"
-                    )
-                }
+                    }
+
             }
         }
-    }
 
     fun loginWithGoogle(idToken: String) {
         _state.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
-            try {
-                val response = AuthApi.retrofitService.googleOAuthLoginUser(
-                    GoogleOAuthRequest(token = idToken)
-                )
+            authRepository.loginWithGoogle(idToken)
+                .onSuccess {
+                    _state.update { it.copy(isLoading = false, isAuthenticated = true) }
+                }
+                .onFailure{
+                        e ->
+                    _state.update { it.copy(isLoading = false, error = e.message ?: "Something went wrong") }
 
-                if (response.isSuccessful && response.body() != null) {
-                    val authResponse = response.body()!!
-                    _state.update { it.copy(isLoading = false, error = authResponse.token) }
-                    // TODO: Store token (authResponse.token) and route to dashboard page
-                } else {
-                    val errorMessage = parseErrorResponse(response.errorBody()?.string())
-                    _state.update { it.copy(isLoading = false, error = errorMessage) }
                 }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        error = e.localizedMessage ?: "Google sign-in failed"
-                    )
-                }
-            }
         }
     }
 
     fun showError(message: String) = _state.update { it.copy(error = message) }
 
-    private fun parseErrorResponse(errorBodyString: String?): String {
-        if (errorBodyString.isNullOrBlank()) return "Authentication failed"
-        return try {
-            val errorResponse = gson.fromJson(errorBodyString, AuthResponse::class.java)
-            errorResponse?.message ?: "Authentication failed"
-        } catch (_: Exception) {
-            "Authentication failed"
-        }
-    }
 }
