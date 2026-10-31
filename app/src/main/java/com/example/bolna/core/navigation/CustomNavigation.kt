@@ -39,7 +39,7 @@ fun CustomNavigation(
         }
         return
     }
-    NavHost(navController = navController, startDestination = startDestination!!) {
+    NavHost(navController = navController, startDestination = Routes.HOME) {
 
         composable(Routes.LOGIN) {
             LoginRoute(
@@ -58,6 +58,11 @@ fun CustomNavigation(
 
         composable(Routes.HOME){
             HomeRoute(
+                onOpenRoom = { /* TODO: chat screen */ },
+                onNewDMChat = { /* TODO: user search screen */ },
+                onNewGroupChat = {/* TODO: multi user search screen */},
+                onOpenProfile = { /* TODO */ },
+                onOpenSettings = { /* TODO */ },
                 onLoggedOut = {
                     navController.navigate(Routes.LOGIN) {
                         //It removes everything from the back stack before showing the new screen.
@@ -135,22 +140,38 @@ fun RegisterRoute(
 
 @Composable
 fun HomeRoute(
+    onOpenRoom: (String) -> Unit,
+    onOpenProfile: () -> Unit,
+    onNewDMChat:() -> Unit,
+    onNewGroupChat:() -> Unit,
+    onOpenSettings: () -> Unit,
     onLoggedOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
-){
+) {
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(state.isLoggedOut) {
         if (state.isLoggedOut) onLoggedOut()
     }
+
     ChatHomeScreen(
+        state = state,
         actions = HomeUiActions(
-            onLogOutClick = viewModel::logOut,
+            onSearchChange = viewModel::onSearchChange,
+            onRoomClick = onOpenRoom,
+            onNewChatClick = viewModel::onNewChatClick,
+            onNewDMClick = onNewDMChat,
+            onNewGroupClick = onNewGroupChat,
+            onProfileClick = onOpenProfile,
+
+            onSettingsClick = onOpenSettings,
+            onLogOutClick = viewModel::logOut
         )
     )
 }
 
 private fun NavController.goToHomeClearingBackStack() {
+    Log.i("Home","Navigating to Home")
     navigate(Routes.HOME) {
         popUpTo(graph.id) { inclusive = true }
     }

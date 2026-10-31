@@ -20,7 +20,9 @@ fun rememberGoogleSignIn(
     return {
         scope.launch {
             client.signIn(context)
-                .onSuccess { token -> onToken(token) }
+                .onSuccess {
+
+                    token -> onToken(token) }
                 .onFailure { e ->
                     // User just closed the popup: not an error worth showing
                     if (e !is GetCredentialCancellationException) {
