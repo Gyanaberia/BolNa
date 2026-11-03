@@ -137,12 +137,15 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Popping animation for Speed Dial menu items (DM and Group)
+                    // HIDES/SHOWS Speed Dial options (DM and Group) based on state.isMenuOpen.
+                    // By default, state.isMenuOpen = false in HomeViewModel, so these options are hidden initially.
                     AnimatedVisibility(
-                        visible = state.isMenuOpen,
-                        enter = fadeIn(animationSpec = tween(200)) +
-                                slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(200)) +
-                                scaleIn(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(200)),
+                        visible = state.isMenuOpen, // <-- This line controls visibility (hidden by default when false)
+                        // Configures how the items pop out smoothly when visible becomes true:
+                        enter = fadeIn(animationSpec = tween(200)) + // Fades in over 200ms
+                                slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(200)) + // Slides up from bottom
+                                scaleIn(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(200)), // Scales out from the main FAB (+ button) position
+                        // Configures how the items retract when visible becomes false:
                         exit = fadeOut(animationSpec = tween(150)) +
                                 slideOutVertically(targetOffsetY = { it / 3 }, animationSpec = tween(150)) +
                                 scaleOut(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(150))
@@ -209,15 +212,16 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
                         }
                     }
 
-                    // Rotating Main FAB (+) -> (X)
+                    // Rotating Main FAB (+) -> (X) when toggled
                     val fabRotation by animateFloatAsState(
                         targetValue = if (state.isMenuOpen) 135f else 0f,
                         animationSpec = tween(durationMillis = 250),
                         label = "FabRotation"
                     )
 
+                    // Main FAB button that triggers onNewChatClick to toggle state.isMenuOpen between true and false
                     FloatingActionButton(
-                        onClick = actions.onNewChatClick,
+                        onClick = actions.onNewChatClick, // <-- Toggles isMenuOpen state in ViewModel
                         containerColor = if (state.isMenuOpen) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
                         contentColor = if (state.isMenuOpen) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onPrimary
                     ) {
@@ -263,7 +267,9 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(items = state.visibleRooms, key = { it.id }) { room ->
-                                ChatRoomItem(room = room, onClick = { actions.onRoomClick(room.id) })
+                                ChatRoomItem(
+                                    room = room,
+                                    onClick = { actions.onRoomClick(room.id) })
                             }
                         }
                     }

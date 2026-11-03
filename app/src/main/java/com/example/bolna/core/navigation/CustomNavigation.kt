@@ -15,13 +15,18 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.bolna.auth.viewModel.LoginViewModel
-import com.example.bolna.auth.viewModel.RegisterViewModel
+import com.example.bolna.auth.google.AutoGoogleSignIn
+import com.example.bolna.auth.google.rememberGoogleSignIn
 import com.example.bolna.auth.view.LoginScreen
 import com.example.bolna.auth.view.LoginUiActions
 import com.example.bolna.auth.view.RegisterScreen
 import com.example.bolna.auth.view.RegisterUiActions
-import com.example.bolna.auth.google.rememberGoogleSignIn
+import com.example.bolna.auth.viewModel.LoginViewModel
+import com.example.bolna.auth.viewModel.RegisterViewModel
+import com.example.bolna.chats.model.RoomType
+import com.example.bolna.chats.ui.createChat.UserSelectionActions
+import com.example.bolna.chats.ui.createChat.UserSelectionScreen
+import com.example.bolna.chats.ui.createChat.UserSelectionViewModel
 import com.example.bolna.chats.ui.home.ChatHomeScreen
 import com.example.bolna.chats.ui.home.HomeUiActions
 import com.example.bolna.chats.ui.home.HomeViewModel
@@ -49,26 +54,44 @@ fun CustomNavigation(
         }
 
         composable(Routes.REGISTER) {
-            // Replace with your RegisterScreen when it's ready
             RegisterRoute(
-                onNavigateToLogin = {navController.navigate(Routes.LOGIN)},
-                onAuthenticated = {navController.goToHomeClearingBackStack()}
+                onNavigateToLogin = { navController.navigate(Routes.LOGIN) },
+                onAuthenticated = { navController.goToHomeClearingBackStack() }
             )
         }
 
-        composable(Routes.HOME){
+        composable(Routes.HOME) {
             HomeRoute(
                 onOpenRoom = { /* TODO: chat screen */ },
-                onNewDMChat = { /* TODO: user search screen */ },
-                onNewGroupChat = {/* TODO: multi user search screen */},
+                onNewDMChat = {
+                    navController.navigate(Routes.DMCREATION)
+                },
+                onNewGroupChat = { navController.navigate(Routes.GROUPCREATION) },
                 onOpenProfile = { /* TODO */ },
                 onOpenSettings = { /* TODO */ },
                 onLoggedOut = {
                     navController.navigate(Routes.LOGIN) {
-                        //It removes everything from the back stack before showing the new screen.
+                        // It removes everything from the back stack before showing the new screen.
                         popUpTo(navController.graph.id) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        composable(Routes.DMCREATION) {
+            NewDMRoute(
+                gotoNextScreen = {
+                    /*TODO*/
+                },
+                gotoHomeScreen = {
+                    navController.popBackStack()
+                },
+            )
+        }
+
+        composable(Routes.GROUPCREATION) {
+            NewGroupRoute(
+                gotoHomeScreen = {navController.popBackStack()}
             )
         }
     }
@@ -82,6 +105,15 @@ fun LoginRoute(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Google recommended auto-sign-in on screen load for returning authorized users
+    AutoGoogleSignIn(
+        onToken = { token ->
+            Log.d("GoogleAuth", "Auto sign-in token retrieved: ${token.take(15)}")
+            viewModel.loginWithGoogle(token)
+        }
+    )
+
     val onGoogleClick = rememberGoogleSignIn(
         onToken = { token ->
             Log.d("GoogleAuth", "Got token, starts with: ${token.take(15)}")
@@ -101,7 +133,6 @@ fun LoginRoute(
             onLoginClick = viewModel::login,
             onGoogleClick = onGoogleClick,
             onRegisterClick = onNavigateToRegister
-
         )
     )
 }
@@ -113,6 +144,15 @@ fun RegisterRoute(
     viewModel: RegisterViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Google recommended auto-sign-in on screen load for returning authorized users
+    AutoGoogleSignIn(
+        onToken = { token ->
+            Log.d("GoogleAuth", "Auto sign-in token retrieved: ${token.take(15)}")
+            viewModel.loginWithGoogle(token)
+        }
+    )
+
     val onGoogleClick = rememberGoogleSignIn(
         onToken = { token ->
             Log.d("GoogleAuth", "Got token, starts with: ${token.take(15)}")
@@ -120,6 +160,7 @@ fun RegisterRoute(
         },
         onError = viewModel::showError
     )
+
     LaunchedEffect(state.isAuthenticated) {
         if (state.isAuthenticated) onAuthenticated()
     }
@@ -142,8 +183,8 @@ fun RegisterRoute(
 fun HomeRoute(
     onOpenRoom: (String) -> Unit,
     onOpenProfile: () -> Unit,
-    onNewDMChat:() -> Unit,
-    onNewGroupChat:() -> Unit,
+    onNewDMChat: () -> Unit,
+    onNewGroupChat: () -> Unit,
     onOpenSettings: () -> Unit,
     onLoggedOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -170,8 +211,46 @@ fun HomeRoute(
     )
 }
 
+
+@Composable
+fun NewDMRoute(
+    gotoHomeScreen: () -> Unit,
+    gotoNextScreen:() -> Unit,
+    viewModel: UserSelectionViewModel = hiltViewModel()
+){
+    val state by viewModel.state.collectAsState()
+    return UserSelectionScreen(
+        state = state,
+        actions = UserSelectionActions(
+            onSearchChange = viewModel::searchUsers,
+            onUserSelect = gotoNextScreen,
+            gotoNextScreen = gotoNextScreen,
+            gotoHomeScreen = gotoHomeScreen,
+            toggleSearch = viewModel::toggleSearch,
+        )
+    )
+}
+
+@Composable
+fun NewGroupRoute(
+    gotoHomeScreen: () -> Unit,
+    viewModel: UserSelectionViewModel = hiltViewModel()
+){
+    viewModel.setCreationType(RoomType.GROUP)
+    val state by viewModel.state.collectAsState()
+    return UserSelectionScreen(
+        state = state,
+        actions = UserSelectionActions(
+            onSearchChange = viewModel::searchUsers,
+            onUserSelect = viewModel::toggleUser,
+            gotoNextScreen = {},
+            gotoHomeScreen = gotoHomeScreen,
+            toggleSearch = viewModel::toggleSearch,
+        )
+    )
+}
 private fun NavController.goToHomeClearingBackStack() {
-    Log.i("Home","Navigating to Home")
+    Log.i("Home", "Navigating to Home")
     navigate(Routes.HOME) {
         popUpTo(graph.id) { inclusive = true }
     }
