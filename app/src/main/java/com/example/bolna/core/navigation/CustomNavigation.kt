@@ -1,6 +1,10 @@
 package com.example.bolna.core.navigation
 
 import android.util.Log
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -8,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -15,6 +20,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navigation
 import com.example.bolna.auth.google.AutoGoogleSignIn
 import com.example.bolna.auth.google.rememberGoogleSignIn
 import com.example.bolna.auth.view.LoginScreen
@@ -24,6 +30,8 @@ import com.example.bolna.auth.view.RegisterUiActions
 import com.example.bolna.auth.viewModel.LoginViewModel
 import com.example.bolna.auth.viewModel.RegisterViewModel
 import com.example.bolna.chats.model.RoomType
+import com.example.bolna.chats.ui.createChat.SetGroupDetailsActions
+import com.example.bolna.chats.ui.createChat.SetGroupDetailsScreen
 import com.example.bolna.chats.ui.createChat.UserSelectionActions
 import com.example.bolna.chats.ui.createChat.UserSelectionScreen
 import com.example.bolna.chats.ui.createChat.UserSelectionViewModel
@@ -44,7 +52,15 @@ fun CustomNavigation(
         }
         return
     }
-    NavHost(navController = navController, startDestination = Routes.HOME) {
+    NavHost(navController = navController, startDestination = Routes.HOME,
+        enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
+        exitTransition = { slideOutHorizontally(targetOffsetX = { -it / 4 }) + fadeOut() },
+        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it / 4 }) + fadeIn() },
+        popExitTransition = { slideOutHorizontally(targetOffsetX = { it }) },
+        //Same animation for androids updated predictive screen flow that plays out during screen swipe or bottom buttons
+        predictivePopEnterTransition = { _ -> slideInHorizontally(initialOffsetX = { -it / 4 }) + fadeIn() },
+        predictivePopExitTransition = { _ -> slideOutHorizontally(targetOffsetX = { it }) }
+        ) {
 
         composable(Routes.LOGIN) {
             LoginRoute(
@@ -66,7 +82,8 @@ fun CustomNavigation(
                 onNewDMChat = {
                     navController.navigate(Routes.DMCREATION)
                 },
-                onNewGroupChat = { navController.navigate(Routes.GROUPCREATION) },
+                onNewGroupChat = {
+                    navController.navigate(Routes.GROUPCREATION) },
                 onOpenProfile = { /* TODO */ },
                 onOpenSettings = { /* TODO */ },
                 onLoggedOut = {
@@ -89,10 +106,32 @@ fun CustomNavigation(
             )
         }
 
-        composable(Routes.GROUPCREATION) {
-            NewGroupRoute(
-                gotoHomeScreen = {navController.popBackStack()}
-            )
+
+        navigation(startDestination = Routes.GROUPCREATION, route = Routes.NEW_GROUP_CHAT_FLOW){
+            composable(Routes.GROUPCREATION) {backStackEntry->
+                val parentEntry = remember(backStackEntry){
+                    navController.getBackStackEntry(Routes.NEW_GROUP_CHAT_FLOW)
+                }
+                val sharedViewModel: UserSelectionViewModel = hiltViewModel(parentEntry)
+                NewGroupRoute(
+                    gotoHomeScreen = {navController.popBackStack()},
+                    gotoNextScreen = {navController.navigate(Routes.NEWGROUPDETAILS)},
+                    viewModel = sharedViewModel
+                )
+            }
+
+            composable(Routes.NEWGROUPDETAILS) {backStackEntry->
+                val parentEntry = remember(backStackEntry){
+                    navController.getBackStackEntry(Routes.NEW_GROUP_CHAT_FLOW)
+                }
+                val sharedViewModel: UserSelectionViewModel = hiltViewModel(parentEntry)
+                NewGroupDetailsRoute(
+                    gotoPreviousScreen = {navController.popBackStack()},
+                    gotoNextScreen = {},
+                    viewModel = sharedViewModel
+                )
+            }
+
         }
     }
 }
@@ -200,7 +239,6 @@ fun HomeRoute(
         actions = HomeUiActions(
             onSearchChange = viewModel::onSearchChange,
             onRoomClick = onOpenRoom,
-            onNewChatClick = viewModel::onNewChatClick,
             onNewDMClick = onNewDMChat,
             onNewGroupClick = onNewGroupChat,
             onProfileClick = onOpenProfile,
@@ -223,7 +261,7 @@ fun NewDMRoute(
         state = state,
         actions = UserSelectionActions(
             onSearchChange = viewModel::searchUsers,
-            onUserSelect = gotoNextScreen,
+            onUserSelect = { _ -> gotoNextScreen() },
             gotoNextScreen = gotoNextScreen,
             gotoHomeScreen = gotoHomeScreen,
             toggleSearch = viewModel::toggleSearch,
@@ -234,6 +272,7 @@ fun NewDMRoute(
 @Composable
 fun NewGroupRoute(
     gotoHomeScreen: () -> Unit,
+    gotoNextScreen: () -> Unit,
     viewModel: UserSelectionViewModel = hiltViewModel()
 ){
     viewModel.setCreationType(RoomType.GROUP)
@@ -242,13 +281,34 @@ fun NewGroupRoute(
         state = state,
         actions = UserSelectionActions(
             onSearchChange = viewModel::searchUsers,
-            onUserSelect = viewModel::toggleUser,
-            gotoNextScreen = {},
+            onUserSelect = { user -> viewModel.toggleUser(user) },
+            gotoNextScreen = gotoNextScreen,
             gotoHomeScreen = gotoHomeScreen,
             toggleSearch = viewModel::toggleSearch,
         )
     )
 }
+
+@Composable
+fun NewGroupDetailsRoute(
+    gotoPreviousScreen: () ->Unit,
+    gotoNextScreen: () -> Unit,
+    viewModel: UserSelectionViewModel = hiltViewModel()
+)
+{
+    val state by viewModel.state.collectAsState()
+    return SetGroupDetailsScreen(
+        state = state,
+        actions = SetGroupDetailsActions(
+            setGroupName = viewModel::setGroupName,
+            removeUser = viewModel::removeUserFromList,
+            removeUserAndGoBack = viewModel::removeLastUserAndGoBack,
+            gotoPreviousScreen = gotoPreviousScreen,
+            gotoNextScreen = gotoNextScreen,
+        ),
+)
+}
+
 private fun NavController.goToHomeClearingBackStack() {
     Log.i("Home", "Navigating to Home")
     navigate(Routes.HOME) {

@@ -7,6 +7,7 @@ data class UserInfoDto(
     val status:String?,
     val lastSeen: String?,
     val name: String,
+    val userHandle:String?,
     val mobileNumber:String?,
     )
 

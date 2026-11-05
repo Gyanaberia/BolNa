@@ -17,6 +17,7 @@ fun UserInfoDto.toModel(): UserInfo{
         },
         lastSeen=lastSeen?.let { Instant.parse(it) } ?: Instant.EPOCH,
         name=name,
+        userHandle = userHandle?: "",
         mobileNumber=mobileNumber?:"",
     )
 }

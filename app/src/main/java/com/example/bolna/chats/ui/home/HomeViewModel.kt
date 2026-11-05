@@ -19,7 +19,6 @@ data class HomeUiState(
     val rooms: List<ChatRoom> = emptyList(),
     val searchQuery: String = "",
     val isLoading: Boolean = false,
-    val isMenuOpen: Boolean = false,
     val error: String? = null,
     val isLoggedOut: Boolean = false,
     val userName: String = "Your name",       // temporary until user info is loaded
@@ -52,9 +51,6 @@ class HomeViewModel @Inject constructor(
     fun onSearchChange(query: String) =
         _state.update { it.copy(searchQuery = query) }
 
-    fun onNewChatClick(){
-        _state.update { it.copy(isMenuOpen = !it.isMenuOpen) }
-    }
     fun loadProfileAtStart(){
 
     }

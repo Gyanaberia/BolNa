@@ -52,7 +52,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -68,7 +71,6 @@ import kotlinx.coroutines.launch
 data class HomeUiActions(
     val onSearchChange: (String) -> Unit,
     val onRoomClick: (String) -> Unit,
-    val onNewChatClick: () -> Unit,
     val onNewDMClick: () -> Unit,
     val onNewGroupClick: () -> Unit,
     val onProfileClick: () -> Unit,
@@ -80,6 +82,7 @@ data class HomeUiActions(
 @Composable
 fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var isMenuOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
@@ -137,10 +140,10 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // HIDES/SHOWS Speed Dial options (DM and Group) based on state.isMenuOpen.
-                    // By default, state.isMenuOpen = false in HomeViewModel, so these options are hidden initially.
+                    // HIDES/SHOWS Speed Dial options (DM and Group) based on isMenuOpen.
+                    // By default, isMenuOpen = false in HomeViewModel, so these options are hidden initially.
                     AnimatedVisibility(
-                        visible = state.isMenuOpen, // <-- This line controls visibility (hidden by default when false)
+                        visible = isMenuOpen, // <-- This line controls visibility (hidden by default when false)
                         // Configures how the items pop out smoothly when visible becomes true:
                         enter = fadeIn(animationSpec = tween(200)) + // Fades in over 200ms
                                 slideInVertically(initialOffsetY = { it / 3 }, animationSpec = tween(200)) + // Slides up from bottom
@@ -214,20 +217,20 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
 
                     // Rotating Main FAB (+) -> (X) when toggled
                     val fabRotation by animateFloatAsState(
-                        targetValue = if (state.isMenuOpen) 135f else 0f,
+                        targetValue = if (isMenuOpen) 135f else 0f,
                         animationSpec = tween(durationMillis = 250),
                         label = "FabRotation"
                     )
 
-                    // Main FAB button that triggers onNewChatClick to toggle state.isMenuOpen between true and false
+                    // Main FAB button that triggers onNewChatClick to toggle isMenuOpen between true and false
                     FloatingActionButton(
-                        onClick = actions.onNewChatClick, // <-- Toggles isMenuOpen state in ViewModel
-                        containerColor = if (state.isMenuOpen) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
-                        contentColor = if (state.isMenuOpen) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onPrimary
+                        onClick = {isMenuOpen=!isMenuOpen}, // <-- Toggles isMenuOpen state in ViewModel
+                        containerColor = if (isMenuOpen) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                        contentColor = if (isMenuOpen) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onPrimary
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = if (state.isMenuOpen) "Close menu" else "New chat",
+                            contentDescription = if (isMenuOpen) "Close menu" else "New chat",
                             modifier = Modifier.rotate(fabRotation)
                         )
                     }
@@ -277,7 +280,7 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
 
                 // Dimmed Overlay Scrim when menu is open
                 AnimatedVisibility(
-                    visible = state.isMenuOpen,
+                    visible = isMenuOpen,
                     enter = fadeIn(animationSpec = tween(200)),
                     exit = fadeOut(animationSpec = tween(200))
                 ) {
@@ -287,7 +290,7 @@ fun ChatHomeScreen(state: HomeUiState, actions: HomeUiActions) {
                             .background(Color.Black.copy(alpha = 0.5f))
                             .pointerInput(Unit) {
                                 detectTapGestures(onTap = {
-                                    actions.onNewChatClick()
+                                    isMenuOpen=false
                                 })
                             }
                     )

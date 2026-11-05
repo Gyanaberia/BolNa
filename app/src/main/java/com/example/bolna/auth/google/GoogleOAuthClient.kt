@@ -1,69 +1,193 @@
 package com.example.bolna.auth.google
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.MutableContextWrapper
+import android.util.Log
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 
 /**
+ * Helper to determine if a [GetCredentialCancellationException] was caused by a manual user action
+ * (e.g. user dismissed or backed out of the picker) versus a system/GMS error (such as code 16 "Account reauth failed").
+ */
+fun isUserCancellation(e: Throwable): Boolean {
+    if (e !is GetCredentialCancellationException) return false
+    val message = e.message ?: ""
+    return !message.contains("16") && !message.contains("reauth", ignoreCase = true)
+}
+
+/**
  * Client for handling Google Sign-In authentication flows using Android's
  * [CredentialManager] API and Google Identity services.
- *
- * Constructs sign-in requests using [GetSignInWithGoogleOption] configured with
- * [AuthConfig.WEB_CLIENT_ID] and retrieves a Google ID token upon successful user authentication.
  */
 class GoogleAuthClient {
 
     /**
-     * Initiates the Google Sign-In flow using [CredentialManager].
+     * Automatic Sign-In flow (used on screen load).
+     * Attempts auto-select for previously authorized accounts seamlessly.
+     * Fails quietly if no authorized account exists on the device.
      *
-     * Displays the Credential Manager UI prompt to the user to sign in with their Google account.
-     * Upon successful authentication, returns the Google ID token which can be used to authenticate
-     * with backend services.
-     *
-     * @param activityContext The [Context] (typically an Activity context) required to host the Credential Manager UI.
-     * @return A [Result] containing the Google ID token [String] on success, or a failure [Result] containing
-     * the caught exception (e.g. [GetCredentialException] if cancelled/failed, [GoogleIdTokenParsingException] if token parsing fails,
-     * or [IllegalStateException] if an unexpected credential type is returned).
+     * @param activityContext The [Context] required to host the Credential Manager UI.
+     * @return A [Result] containing the Google ID token [String] on success, or a failure [Result].
      */
-    suspend fun signIn(activityContext: Context): Result<String> {
-        //CredentialManager doesn't just fetch data; it UI-pops up a system sheet from the bottom of the screen (asking the user to choose an account or scan a fingerprint).
-        //Your app code only has permission to draw inside its own white or black box on the screen.
-        // It does not have permission to draw system-level pop-ups.
-        // By passing the context (specifically an Activity context), you are saying:
-        // "Android System, here is my active screen window. Please overlay your secure login prompt right on top of it."
+    @SuppressLint("CredManMutableContext")
+    suspend fun signInAuto(activityContext: Context): Result<String> {
         val credentialManager = CredentialManager.create(activityContext)
-        //It tells the Android system, "When you show the account picker, I specifically want Google accounts."
-        // It passes your WEB_CLIENT_ID (a unique ID from your Google Developer Console) so Google knows which backend server this login belongs to.
-        val option = GetSignInWithGoogleOption.Builder(AuthConfig.WEB_CLIENT_ID).build()
+        val mutableContext = MutableContextWrapper(activityContext)
 
-        //• An app can ask for multiple types of login at once (like Passkeys, saved passwords, and Google Sign-In).
-        // Here, you are building the overall request and adding the Google option you just created above into it.
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts = true)
+            .setServerClientId(AuthConfig.WEB_CLIENT_ID)
+            .setAutoSelectEnabled(autoSelectEnabled = true)
+            .build()
+
         val request = GetCredentialRequest.Builder()
-            .addCredentialOption(option)
+            .addCredentialOption(googleIdOption)
             .build()
 
         return try {
-            val result = credentialManager.getCredential(MutableContextWrapper(activityContext), request)
-            val credential = result.credential
+            val result = credentialManager.getCredential(mutableContext, request)
+            processCredentialResult(result)
+        } catch (e: GetCredentialException) {
+            Result.failure(e)
+        } catch (e: GoogleIdTokenParsingException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
-            if (credential is CustomCredential &&
-                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-            ) {
-                val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                Result.success(idToken)
+    /**
+     * Explicit Sign-In flow (used when the user taps the "Sign in with Google" button).
+     * Uses [GetSignInWithGoogleOption] (the official button option) to display the account picker,
+     * falling back to [GetGoogleIdOption] and clearing state if GMS re-auth or other credential errors occur.
+     *
+     * @param activityContext The [Context] required to host the Credential Manager UI.
+     * @return A [Result] containing the Google ID token [String] on success, or a failure [Result].
+     */
+    @SuppressLint("CredManMutableContext")
+    suspend fun signInWithButton(activityContext: Context): Result<String> {
+        val credentialManager = CredentialManager.create(activityContext)
+        val mutableContext = MutableContextWrapper(activityContext)
+
+        val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(
+            serverClientId = AuthConfig.WEB_CLIENT_ID
+        ).build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(signInWithGoogleOption)
+            .build()
+
+        return try {
+            val result = credentialManager.getCredential(mutableContext, request)
+            processCredentialResult(result)
+        } catch (e: GetCredentialCancellationException) {
+            if (isUserCancellation(e)) {
+                // User explicitly cancelled the picker prompt; do not retry
+                Result.failure(e)
             } else {
-                Result.failure(IllegalStateException("Unexpected credential type"))
+                Log.w(
+                    "GoogleAuth",
+                    "signInWithButton failed with non-user cancellation [${e.message}]. Clearing state and retrying via fallback.",
+                    e
+                )
+                tryClearStateAndFallback(credentialManager, mutableContext)
+            }
+        } catch (e: GetCredentialException) {
+            Log.w(
+                "GoogleAuth",
+                "signInWithButton failed [${e.message}]. Clearing state and retrying via fallback.",
+                e
+            )
+            tryClearStateAndFallback(credentialManager, mutableContext)
+        } catch (e: GoogleIdTokenParsingException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun tryClearStateAndFallback(
+        credentialManager: CredentialManager,
+        context: MutableContextWrapper,
+    ): Result<String> {
+        try {
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: Exception) {
+            Log.w("GoogleAuth", "Failed to clear credential state during fallback: ${e.message}")
+        }
+        return signInWithGoogleIdOptionFallback(credentialManager, context)
+    }
+
+    private suspend fun signInWithGoogleIdOptionFallback(
+        credentialManager: CredentialManager,
+        context: MutableContextWrapper,
+    ): Result<String> {
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts = false)
+            .setServerClientId(AuthConfig.WEB_CLIENT_ID)
+            .setAutoSelectEnabled(autoSelectEnabled = false)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        return try {
+            val result = credentialManager.getCredential(context, request)
+            processCredentialResult(result)
+        } catch (e: GetCredentialCancellationException) {
+            if (isUserCancellation(e)) {
+                Result.failure(e)
+            } else {
+                Log.e("GoogleAuth", "Fallback sign-in also failed with non-user cancellation: ${e.message}", e)
+                Result.failure(e)
             }
         } catch (e: GetCredentialException) {
             Result.failure(e)
         } catch (e: GoogleIdTokenParsingException) {
             Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Clears the credential state in [CredentialManager] upon user sign-out.
+     *
+     * Calling this ensures that any active credential session stored by credential providers
+     * (e.g. Google Play Services) is cleared, giving the user full options to pick an account
+     * the next time they initiate sign-in.
+     */
+    suspend fun signOut(context: Context) {
+        val credentialManager = CredentialManager.create(context)
+        try {
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+            Log.d("GoogleAuth", "Successfully cleared CredentialManager state on sign-out.")
+        } catch (e: Exception) {
+            Log.e("GoogleAuth", "Failed to clear CredentialManager state on sign-out.", e)
+        }
+    }
+
+    private fun processCredentialResult(result: GetCredentialResponse): Result<String> {
+        val credential = result.credential
+        return if ((credential is CustomCredential) &&
+            (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
+        ) {
+            val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
+            Result.success(idToken)
+        } else {
+            Result.failure(IllegalStateException("Unexpected credential type: ${credential.type}"))
         }
     }
 }
